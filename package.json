@@ -1,9 +1,10 @@
 {
   "name": "buffer-esm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A cross-platform, partial implementation shim of Node Buffer.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "module": "esm/index.js",
   "exports": {
     "import": "./esm/index.js",
     "require": "./dist/index.js"
