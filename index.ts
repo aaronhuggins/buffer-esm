@@ -213,7 +213,7 @@ export class BufferShim extends Uint8Array {
     const out = []
 
     for (let i = 0; i < bytes.length; i += 2) {
-      out.push(String.fromCharCode(bytes[i] + (bytes[i + 1] * 256)))
+      out.push(String.fromCharCode(bytes[i] + bytes[i + 1] * 256))
     }
 
     return out.join('')
@@ -223,7 +223,7 @@ export class BufferShim extends Uint8Array {
     const ascii = []
 
     for (let i = 0; i < input.length; i += 1) {
-      ascii.push(input.charCodeAt(i) & 0xFF)
+      ascii.push(input.charCodeAt(i) & 0xff)
     }
 
     return new Uint8Array(ascii).buffer
@@ -323,13 +323,19 @@ export class BufferShim extends Uint8Array {
     return typeof Buffer === 'function' && typeof Buffer.from === 'function'
   }
 
-  static from(arrayBuffer: ArrayBuffer | SharedArrayBuffer): BufferShim
-  static from(data: number[]): BufferShim
-  static from(data: Uint8Array): BufferShim
-  static from(obj: { valueOf(): string | object } | { [Symbol.toPrimitive](hint: 'string'): string }): BufferShim
-  static from(str: string, encoding?: BufferEncoding): BufferShim
-  static from (input: string | Buffer | ArrayBuffer | SharedArrayBuffer | Uint8Array | number[], encoding?: BufferEncoding): BufferShim {
-    if (typeof input !== 'string' && (Array.isArray(input) || input instanceof Uint8Array || typeof input[Symbol.iterator] === 'function')) {
+  static from (arrayBuffer: ArrayBuffer | SharedArrayBuffer): BufferShim
+  static from (data: number[]): BufferShim
+  static from (data: Uint8Array): BufferShim
+  static from (obj: { valueOf(): string | object } | { [Symbol.toPrimitive](hint: 'string'): string }): BufferShim
+  static from (str: string, encoding?: BufferEncoding): BufferShim
+  static from (
+    input: string | Buffer | ArrayBuffer | SharedArrayBuffer | Uint8Array | number[],
+    encoding?: BufferEncoding
+  ): BufferShim {
+    if (
+      typeof input !== 'string' &&
+      (Array.isArray(input) || input instanceof Uint8Array || typeof input[Symbol.iterator] === 'function')
+    ) {
       const buffer = Uint8Array.from(input as number[] | Uint8Array).buffer
 
       return new BufferShim(buffer)
