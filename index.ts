@@ -1,8 +1,9 @@
 const BASE64_ENCODINGS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 const BASE64_LOOKUP = new Uint8Array(256)
+let IGNORE_NODE = false
 
 export class BufferShim extends Uint8Array {
-  constructor (input: string | Buffer | ArrayBuffer | SharedArrayBuffer, encoding: BufferEncoding = 'utf8') {
+  constructor (input: string | Buffer | BufferShim | ArrayBuffer | SharedArrayBuffer, encoding: BufferEncoding = 'utf8') {
     const isAscii = (encoding: BufferEncoding) => ['ascii', 'latin1', 'binary'].includes(encoding)
     const isUtf16 = (encoding: BufferEncoding) => ['ucs2', 'ucs-2', 'utf16le'].includes(encoding)
     const isUtf8 = (encoding: BufferEncoding) => ['utf8', 'utf-8'].includes(encoding)
@@ -20,14 +21,14 @@ export class BufferShim extends Uint8Array {
       buffer = BufferShim.toUTF16Array(input)
     } else if (typeof input === 'string' && isAscii(encoding)) {
       buffer = BufferShim.toASCIIArrayOrBinaryArray(input)
+    } else if (typeof input === 'string' && encoding === 'hex') {
+      buffer = BufferShim.toHexArray(input)
     } else if (typeof input === 'string' && encoding === 'base64') {
       buffer = BufferShim.atob(input)
-    } else if (typeof input === 'string' && encoding === 'base64') {
-      buffer = BufferShim.toHexArray(input)
     } else if (typeof input === 'string') {
       throw new Error('Unsupported encoding ' + encoding)
-    } else if (BufferShim.isNodeEnv && Buffer.isBuffer(input)) {
-      buffer = BufferShim.toArrayBuffer(input)
+    } else if (BufferShim.isBuffer(input) || BufferShim.isBufferShim(input)) {
+      buffer = BufferShim.toArrayBuffer(input as Buffer)
     } else {
       buffer = input as ArrayBuffer
     }
@@ -220,6 +221,8 @@ export class BufferShim extends Uint8Array {
   }
 
   private static toASCIIArrayOrBinaryArray (input: string) {
+    if (BufferShim.isNodeEnv) return BufferShim.toArrayBuffer(Buffer.from(input, 'binary'))
+
     const ascii = []
 
     for (let i = 0; i < input.length; i += 1) {
@@ -230,6 +233,8 @@ export class BufferShim extends Uint8Array {
   }
 
   private static fromBinaryArray (buffer: ArrayBuffer) {
+    if (BufferShim.isNodeEnv) return BufferShim.toNodeBuffer(buffer).toString('binary')
+
     const bytes = new Uint8Array(buffer)
     const out = []
 
@@ -241,20 +246,26 @@ export class BufferShim extends Uint8Array {
   }
 
   private static toHexArray (input: string) {
-    if (input.length % 2 === 1) {
-      input = input.substr(0, input.length - 1)
-    }
+    if (BufferShim.isNodeEnv) return BufferShim.toArrayBuffer(Buffer.from(input, 'hex'))
 
+    const HEX_LEN = 2
     const hex = []
+    const length = input.length / HEX_LEN
 
-    for (let i = 0; i < input.length; i += 2) {
-      hex.push(parseInt(input[i] + input[i + 1], 16))
+    for (let i = 0; i < length; i += 1) {
+      const parsed = parseInt(input.substr(i * HEX_LEN, HEX_LEN), 16)
+
+      if (isNaN(parsed)) return new Uint8Array([]).buffer
+
+      hex.push(parsed)
     }
 
     return new Uint8Array(hex).buffer
   }
 
   private static fromHexArray (buffer: ArrayBuffer) {
+    if (BufferShim.isNodeEnv) return BufferShim.toNodeBuffer(buffer).toString('hex')
+
     const bytes = new Uint8Array(buffer)
     const out = []
 
@@ -267,7 +278,7 @@ export class BufferShim extends Uint8Array {
     return out.join('')
   }
 
-  private static toArrayBuffer (buffer: Buffer) {
+  static toArrayBuffer (buffer: Buffer | BufferShim) {
     const arrayBuffer = new ArrayBuffer(buffer.length)
     const view = new Uint8Array(arrayBuffer)
 
@@ -277,8 +288,8 @@ export class BufferShim extends Uint8Array {
     return arrayBuffer
   }
 
-  private static toNodeBuffer (buffer: ArrayBuffer) {
-    if (!BufferShim.isNodeEnv) return new Uint8Array(buffer)
+  static toNodeBuffer (buffer: ArrayBuffer) {
+    if (!BufferShim.isNodeEnv) return new BufferShim(buffer)
 
     const nodeBuffer = Buffer.alloc(buffer.byteLength)
     const view = new Uint8Array(buffer)
@@ -298,7 +309,7 @@ export class BufferShim extends Uint8Array {
     return BufferShim.toNodeBuffer(this.buffer)
   }
 
-  toString (encoding: BufferEncoding = 'utf8') {
+  toString (encoding: BufferEncoding = 'utf8'): string {
     switch (encoding) {
       case 'hex':
         return BufferShim.fromHexArray(this.buffer)
@@ -320,7 +331,21 @@ export class BufferShim extends Uint8Array {
   }
 
   static get isNodeEnv () {
+    if (IGNORE_NODE) return false
+
     return typeof Buffer === 'function' && typeof Buffer.from === 'function'
+  }
+
+  static isBuffer(buffer: any) {
+    if (BufferShim.isNodeEnv) {
+      return buffer instanceof Buffer
+    }
+
+    return false
+  }
+
+  static isBufferShim (buffer: any) {
+    return buffer instanceof BufferShim
   }
 
   static from (arrayBuffer: ArrayBuffer | SharedArrayBuffer): BufferShim
@@ -329,11 +354,13 @@ export class BufferShim extends Uint8Array {
   static from (obj: { valueOf(): string | object } | { [Symbol.toPrimitive](hint: 'string'): string }): BufferShim
   static from (str: string, encoding?: BufferEncoding): BufferShim
   static from (
-    input: string | Buffer | ArrayBuffer | SharedArrayBuffer | Uint8Array | number[],
+    input: string | Buffer | BufferShim | ArrayBuffer | SharedArrayBuffer | Uint8Array | number[],
     encoding?: BufferEncoding
   ): BufferShim {
     if (
       typeof input !== 'string' &&
+      !BufferShim.isBuffer(input) &&
+      !BufferShim.isBufferShim(input) &&
       (Array.isArray(input) || input instanceof Uint8Array || typeof input[Symbol.iterator] === 'function')
     ) {
       const buffer = Uint8Array.from(input as number[] | Uint8Array).buffer
@@ -341,6 +368,12 @@ export class BufferShim extends Uint8Array {
       return new BufferShim(buffer)
     }
 
-    return new BufferShim(input as string | Buffer | ArrayBuffer | SharedArrayBuffer, encoding as BufferEncoding)
+    return new BufferShim(input as string | Buffer | BufferShim | ArrayBuffer | SharedArrayBuffer, encoding as BufferEncoding)
   }
+}
+
+export function ignoreNode (ignore?: boolean) {
+  if (typeof ignore === 'undefined') return IGNORE_NODE
+  IGNORE_NODE = ignore
+  return IGNORE_NODE
 }

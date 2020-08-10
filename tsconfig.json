@@ -11,8 +11,8 @@
     "outDir": "dist",
     "declaration": true,
     "sourceMap": true,
-    "types": ["node"]
+    "types": ["mocha", "node"]
   },
 
-  "exclude": ["node_modules", "dist", "gulpfile.ts", "index.test.ts"]
+  "exclude": ["node_modules", "dist", "gulpfile.ts", "test/index.test.ts"]
 }
