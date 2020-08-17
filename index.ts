@@ -2,7 +2,12 @@ const BASE64_ENCODINGS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 const BASE64_LOOKUP = new Uint8Array(256)
 let IGNORE_NODE = false
 
+/** Class extending Uint8Array to provide a partial implementation of NodeJS Buffer as a cross-platform shim. */
 export class BufferShim extends Uint8Array {
+  /**
+   * @param {string|Buffer|BufferShim|ArrayBuffer|SharedArrayBuffer} input 
+   * @param {BufferEncoding} [encoding='utf8']
+   */
   constructor (input: string | Buffer | BufferShim | ArrayBuffer | SharedArrayBuffer, encoding: BufferEncoding = 'utf8') {
     const isAscii = (encoding: BufferEncoding) => ['ascii', 'latin1', 'binary'].includes(encoding)
     const isUtf16 = (encoding: BufferEncoding) => ['ucs2', 'ucs-2', 'utf16le'].includes(encoding)
@@ -278,6 +283,10 @@ export class BufferShim extends Uint8Array {
     return out.join('')
   }
 
+  /** Copy a Buffer or BufferShim to an ArrayBuffer.
+   * @param {Buffer|BufferShim} buffer
+   * @returns {ArrayBuffer}
+   */
   static toArrayBuffer (buffer: Buffer | BufferShim) {
     const arrayBuffer = new ArrayBuffer(buffer.length)
     const view = new Uint8Array(arrayBuffer)
@@ -288,6 +297,10 @@ export class BufferShim extends Uint8Array {
     return arrayBuffer
   }
 
+  /** Copy an ArrayBuffer to a Buffer if possible or a BufferShim.
+   * @param {ArrayBuffer} buffer
+   * @returns {Buffer}
+   */
   static toNodeBuffer (buffer: ArrayBuffer) {
     if (!BufferShim.isNodeEnv) return new BufferShim(buffer)
 
@@ -301,14 +314,24 @@ export class BufferShim extends Uint8Array {
     return nodeBuffer
   }
 
+  /** Returns this instance as a Uint8Array.
+   * @returns {Uint8Array}
+   */
   toUint8Array () {
     return new Uint8Array(this.buffer)
   }
 
+  /** Returns this instance as a NodeJS Buffer if possible.
+   * @returns {Buffer}
+   */
   toBuffer () {
     return BufferShim.toNodeBuffer(this.buffer)
   }
 
+  /** Returns this instance as a string.
+   * @param {BufferEncoding} [encoding='utf8']
+   * @returns {string}
+   */
   toString (encoding: BufferEncoding = 'utf8'): string {
     switch (encoding) {
       case 'hex':
@@ -330,12 +353,17 @@ export class BufferShim extends Uint8Array {
     }
   }
 
+  /** Tests if the current environment is using NodeJS Buffer implementation. */
   static get isNodeEnv () {
     if (IGNORE_NODE) return false
 
-    return typeof Buffer === 'function' && typeof Buffer.from === 'function'
+    return typeof Buffer === 'function' && typeof Buffer.from === 'function' && typeof (Buffer as any).isBufferShim === 'undefined'
   }
 
+  /** Returns true if {buffer} is a Buffer
+   * @param {any} buffer
+   * @returns {boolean}
+   */
   static isBuffer(buffer: any) {
     if (BufferShim.isNodeEnv) {
       return buffer instanceof Buffer
@@ -344,10 +372,19 @@ export class BufferShim extends Uint8Array {
     return false
   }
 
+  /** Returns true if {buffer} is a BufferShim
+   * @param {any} buffer
+   * @returns {boolean}
+   */
   static isBufferShim (buffer: any) {
     return buffer instanceof BufferShim
   }
 
+  /** Creates a new BufferShim from the given value.
+   * @param {string|Buffer|BufferShim|ArrayBuffer|SharedArrayBuffer|Uint8Array|number[]} input
+   * @param {BufferEncoding} [encoding='utf8']
+   * @returns {BufferShim}
+   */
   static from (arrayBuffer: ArrayBuffer | SharedArrayBuffer): BufferShim
   static from (data: number[]): BufferShim
   static from (data: Uint8Array): BufferShim
@@ -372,8 +409,14 @@ export class BufferShim extends Uint8Array {
   }
 }
 
-export function ignoreNode (ignore?: boolean) {
-  if (typeof ignore === 'undefined') return IGNORE_NODE
-  IGNORE_NODE = ignore
+/** Global function for ignoring NodeJS env in class BufferShim.
+ * @param {boolean} [ignore] - Sets the global value; if no boolean is passed, it will return the current setting.
+ * @returns {boolean}
+ */
+export function ignoreNode (ignore?: boolean): boolean {
+  if (typeof ignore === 'boolean') {
+    IGNORE_NODE = ignore
+  }
+
   return IGNORE_NODE
 }

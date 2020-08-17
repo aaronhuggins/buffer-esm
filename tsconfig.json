@@ -14,5 +14,5 @@
     "types": ["mocha", "node"]
   },
 
-  "exclude": ["node_modules", "dist", "gulpfile.ts", "test/index.test.ts"]
+  "exclude": ["node_modules", "dist", "esm", "gulpfile.ts", "test/index.test.ts"]
 }
