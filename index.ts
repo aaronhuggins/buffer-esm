@@ -2,6 +2,55 @@ const BASE64_ENCODINGS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 const BASE64_LOOKUP = new Uint8Array(256)
 let IGNORE_NODE = false
 
+const byteArrayProto = Object.getPrototypeOf(Uint8Array.prototype)
+const byteLength = Object.getOwnPropertyDescriptor(byteArrayProto, 'byteLength').get
+const byteFill = byteArrayProto.fill
+
+const normalizeEncoding = function normalizeEncoding(enc: BufferEncoding): BufferEncoding {
+  const encoding = `${enc}`.toLowerCase()
+
+  switch (encoding as BufferEncoding) {
+    case 'ascii':
+      return 'ascii'
+    case 'base64':
+      return 'base64'
+    case 'hex':
+      return 'hex'
+    case 'latin1':
+    case 'binary':
+      return 'latin1'
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+      return 'utf16le'
+    case 'utf8':
+    case 'utf-8':
+      return 'utf8'
+    default:
+      if (encoding === '') return 'utf8'
+  }
+}
+
+const validateInt32 = function validateInt32 (value: number, name: string, min = -2147483648, max = 2147483647) {
+  const OUT_OF_RANGE = `'${name}' must be >= ${min} && <= ${max}: ${value}`
+
+  if (value !== (value | 0)) {
+    if (typeof value !== 'number') {
+      throw new Error(`'${name}' must be a number: ${value}`)
+    }
+
+    if (!Number.isInteger(value)) {
+      throw new Error(`'${name}' must be an integer: ${value}`)
+    }
+
+    throw new Error(OUT_OF_RANGE)
+  }
+
+  if (value < min || value > max) {
+    throw new Error(OUT_OF_RANGE)
+  }
+}
+
 /** Class extending Uint8Array to provide a partial implementation of NodeJS Buffer as a cross-platform shim. */
 export class BufferShim extends Uint8Array {
   /**
@@ -9,9 +58,7 @@ export class BufferShim extends Uint8Array {
    * @param {BufferEncoding} [encoding='utf8']
    */
   constructor (input: string | Buffer | BufferShim | ArrayBuffer | SharedArrayBuffer, encoding: BufferEncoding = 'utf8') {
-    const isAscii = (encoding: BufferEncoding) => ['ascii', 'latin1', 'binary'].includes(encoding)
-    const isUtf16 = (encoding: BufferEncoding) => ['ucs2', 'ucs-2', 'utf16le'].includes(encoding)
-    const isUtf8 = (encoding: BufferEncoding) => ['utf8', 'utf-8'].includes(encoding)
+    encoding = normalizeEncoding(encoding)
     let buffer: ArrayBuffer
 
     if (BASE64_LOOKUP['B'.charCodeAt(0)] === 0) {
@@ -20,11 +67,11 @@ export class BufferShim extends Uint8Array {
       }
     }
 
-    if (typeof input === 'string' && isUtf8(encoding)) {
+    if (typeof input === 'string' && encoding === 'utf8') {
       buffer = BufferShim.toUTF8Array(input)
-    } else if (typeof input === 'string' && isUtf16(encoding)) {
+    } else if (typeof input === 'string' && encoding === 'utf16le') {
       buffer = BufferShim.toUTF16Array(input)
-    } else if (typeof input === 'string' && isAscii(encoding)) {
+    } else if (typeof input === 'string' && ['ascii', 'latin1'].includes(encoding)) {
       buffer = BufferShim.toASCIIArrayOrBinaryArray(input)
     } else if (typeof input === 'string' && encoding === 'hex') {
       buffer = BufferShim.toHexArray(input)
@@ -34,8 +81,14 @@ export class BufferShim extends Uint8Array {
       throw new Error('Unsupported encoding ' + encoding)
     } else if (BufferShim.isBuffer(input) || BufferShim.isBufferShim(input)) {
       buffer = BufferShim.toArrayBuffer(input as Buffer)
-    } else {
+    } else if (input instanceof ArrayBuffer || input instanceof SharedArrayBuffer) {
       buffer = input as ArrayBuffer
+    } else {
+      throw new Error(
+        'The first argument must be one of type string, Buffer, ' +
+        'ArrayBuffer, Array, or Array-like Object. Received type ' +
+        (typeof input)
+      )
     }
 
     super(buffer)
@@ -314,6 +367,24 @@ export class BufferShim extends Uint8Array {
     return nodeBuffer
   }
 
+  /** Fills this instance with a value.
+   * @param {number|string|Buffer|BufferShim|Uint8Array} value
+   * @param {number|BufferEncoding} [offset]
+   * @param {number|BufferEncoding} [end]
+   * @param {BufferEncoding} [encoding]
+   * @returns {BufferShim}
+   */
+  fill(value: number | string | Buffer | BufferShim | Uint8Array): this
+  fill(value:  number | string | Buffer | BufferShim | Uint8Array, encoding: BufferEncoding): this
+  fill(value: number | string | Buffer | BufferShim | Uint8Array, offset: number, end?: number): this
+  fill(value: number | string | Buffer | BufferShim | Uint8Array, offset: number, encoding?: BufferEncoding): this
+  fill(value: number | string | Buffer | BufferShim | Uint8Array, offset?: number, end?: number, encoding?: BufferEncoding): this
+  fill (value: number | string | Buffer | BufferShim | Uint8Array, offset?: number | BufferEncoding, end?: number | BufferEncoding, encoding?: BufferEncoding): this {
+    BufferShim.fill(this, value, offset as number, end as number, encoding)
+
+    return this
+  }
+
   /** Returns this instance as a Uint8Array.
    * @returns {Uint8Array}
    */
@@ -333,20 +404,17 @@ export class BufferShim extends Uint8Array {
    * @returns {string}
    */
   toString (encoding: BufferEncoding = 'utf8'): string {
+    encoding = normalizeEncoding(encoding)
     switch (encoding) {
       case 'hex':
         return BufferShim.fromHexArray(this.buffer)
-      case 'ucs-2':
-      case 'ucs2':
       case 'utf16le':
         return BufferShim.fromUTF16Array(this.buffer)
       case 'latin1':
-      case 'binary':
         return BufferShim.fromBinaryArray(this.buffer)
       case 'base64':
         return BufferShim.btoa(this.buffer)
       case 'ascii':
-      case 'utf-8':
       case 'utf8':
       default:
         return BufferShim.fromUTF8ArrayOrASCIIArray(this.buffer)
@@ -380,6 +448,22 @@ export class BufferShim extends Uint8Array {
     return buffer instanceof BufferShim
   }
 
+  /** Allocates a new buffer of {size} octets.
+   * @param {number} size
+   * @returns {BufferShim}
+   */
+  static alloc (size : number, fill?: number | string | Buffer | BufferShim | Uint8Array, encoding?: BufferEncoding) {
+    return BufferShim.fill(new BufferShim(new ArrayBuffer(size)), fill || 0, encoding)
+  }
+
+  /** Allocates a new uninitialized buffer of {size} octets.
+   * @param {number} size
+   * @returns {BufferShim}
+   */
+  static allocUnsafe (size : number) {
+    return new BufferShim(new ArrayBuffer(size))
+  }
+
   /** Creates a new BufferShim from the given value.
    * @param {string|Buffer|BufferShim|ArrayBuffer|SharedArrayBuffer|Uint8Array|number[]} input
    * @param {BufferEncoding} [encoding='utf8']
@@ -406,6 +490,91 @@ export class BufferShim extends Uint8Array {
     }
 
     return new BufferShim(input as string | Buffer | BufferShim | ArrayBuffer | SharedArrayBuffer, encoding as BufferEncoding)
+  }
+
+  /** Fills a given buffer with a value.
+   * @param {BufferShim} buffer
+   * @param {number|string|Buffer|BufferShim|Uint8Array} value
+   * @param {number|BufferEncoding} [offset]
+   * @param {number|BufferEncoding} [end]
+   * @param {BufferEncoding} [encoding]
+   * @returns {BufferShim}
+   */
+  static fill(buffer: BufferShim, value: number | string | Buffer | BufferShim | Uint8Array): BufferShim
+  static fill(buffer: BufferShim, value:  number | string | Buffer | BufferShim | Uint8Array, encoding: BufferEncoding): BufferShim
+  static fill(buffer: BufferShim, value: number | string | Buffer | BufferShim | Uint8Array, offset: number, end?: number): BufferShim
+  static fill(buffer: BufferShim, value: number | string | Buffer | BufferShim | Uint8Array, offset: number, encoding?: BufferEncoding): BufferShim
+  static fill(buffer: BufferShim, value: number | string | Buffer | BufferShim | Uint8Array, offset?: number, end?: number, encoding?: BufferEncoding): BufferShim
+  static fill(buffer: BufferShim, value: number | string | Buffer | BufferShim | Uint8Array, offset?: number | BufferEncoding, end?: number | BufferEncoding, encoding?: BufferEncoding): BufferShim {
+    if (typeof value === 'string') {
+      if (offset === undefined || typeof offset === 'string') {
+        encoding = offset as BufferEncoding
+        offset = 0
+        end = buffer.length
+      } else if (typeof end === 'string') {
+        encoding = end as BufferEncoding
+        end = buffer.length
+      }
+
+      const normalizedEncoding = normalizeEncoding(encoding)
+
+      if (normalizedEncoding === undefined) {
+        throw new Error('Unsupported encoding ' + encoding)
+      }
+
+      if (value.length === 0) {
+        // If value === '' default to zero.
+        value = 0
+      } else if (value.length === 1) {
+        // Fast path: If `value` fits into a single byte, use that numeric value.
+        if (normalizedEncoding === 'utf8') {
+          const code = value.charCodeAt(0)
+          if (code < 128) {
+            value = code
+          }
+        } else if (normalizedEncoding === 'latin1') {
+          value = value.charCodeAt(0)
+        }
+      }
+    } else {
+      encoding = undefined
+    }
+
+    if (offset === undefined) {
+      offset = 0
+      end = buffer.length
+    } else {
+      validateInt32(offset as number, 'offset', 0)
+      // Invalid ranges are not set to a default, so can range check early.
+      if (end === undefined) {
+        end = buffer.length
+      } else {
+        validateInt32(end as number, 'end', 0, buffer.length)
+      }
+
+      if (offset >= end) return buffer
+    }
+
+    if (typeof value === 'number') {
+      // OOB check
+      const byteLen = byteLength.call(buffer)
+      const fillLength = (end as number) - (offset as number)
+
+      if (offset > end || fillLength + (offset as number) > byteLen) {
+        throw new Error('Attempt to access memory outside buffer bounds')
+      }
+
+      byteFill.call(buffer, value, offset, end)
+    } else {
+      const bytes = BufferShim.isBufferShim(value) ? value as BufferShim : BufferShim.from(value)
+      const length = bytes.length
+
+      for (let i = 0; i < (end as number) - (offset as number); i += 1) {
+        buffer[i + (offset as number)] = bytes[i % length]
+      }
+    }
+
+    return buffer as BufferShim
   }
 }
 
